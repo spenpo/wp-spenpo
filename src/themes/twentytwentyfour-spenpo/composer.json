@@ -1,0 +1,16 @@
+{
+    "name": "spenpo/twentytwentyfour-spenpo",
+    "description": "Twenty Twenty-Four Spenpo Theme",
+    "type": "wordpress-theme",
+    "license": "MIT",
+    "version": "dev-main",
+    "authors": [
+        {
+            "name": "Spencer Pope",
+            "email": "spenpo@spenpo.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4"
+    }
+}

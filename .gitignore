@@ -1,0 +1,41 @@
+# WordPress uploads (stored in R2 instead)
+src/uploads/
+wordpress/wp-content/uploads/
+*_bk
+# WordPress core files
+wordpress/
+wp-content/
+
+# Composer
+vendor/
+composer.lock
+
+# Cache
+wordpress/wp-content/cache/
+src/cache/
+
+# Environment-specific files
+wordpress/wp-config.php
+.env*
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp 

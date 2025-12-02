@@ -1,0 +1,48 @@
+{
+    "name": "spenpo/wp-spenpo",
+    "description": "wp.spenpo.com",
+    "type": "project",
+    "require": {
+        "roots/wordpress": "6.8",
+        "php": "^8.3",
+        "wp-cli/wp-cli": "^2.12",
+        "wpackagist-plugin/spenpo-resume": "^1.0",
+        "spenpo/twentytwentyfour-spenpo": "dev-main",
+        "aws/aws-sdk-php": "^3.0",
+        "wpackagist-theme/twentytwentyfour": "^1.3",
+        "wpackagist-plugin/litespeed-cache": "^7.6"
+    },
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Spenpo\\WpSpenpo\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Spencer Pope",
+            "email": "spenpo@spenpo.com"
+        }
+    ],
+    "config": {
+        "allow-plugins": {
+            "roots/wordpress-core-installer": true,
+            "composer/installers": true
+        },
+        "installer-paths": {
+            "wordpress/wp-content/plugins/{$name}/": ["type:wordpress-plugin"],
+            "wordpress/wp-content/themes/{$name}/": ["type:wordpress-theme"],
+            "wordpress/wp-content/mu-plugins/{$name}/": ["type:wordpress-muplugin"]
+        }
+    },
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://wpackagist.org"
+        },
+        {
+            "type": "path",
+            "url": "src/themes/twentytwentyfour-spenpo"
+        }
+    ]
+}
