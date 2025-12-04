@@ -57,12 +57,34 @@ if (is_dir('wp-content')) {
     echo "   ✓ Moved wp-content into wordpress/ directory\n";
 }
 
-// Fix symlinked local themes by copying actual files
-echo "   Fixing symlinked local themes...\n";
-if (is_link('wordpress/wp-content/themes/twenty-twenty-five-child')) {
-    system('rm wordpress/wp-content/themes/twenty-twenty-five-child');
-    system('cp -r src/themes/twenty-twenty-five-child wordpress/wp-content/themes/');
-    echo "   ✓ Copied twenty-twenty-five-child theme files\n";
+// Fix local themes installed via Composer path repositories
+echo "   Fixing local themes installed from src/themes...\n";
+$localThemes = glob('src/themes/*', GLOB_ONLYDIR);
+if ($localThemes === false || count($localThemes) === 0) {
+    echo "   ➜ No local themes detected\n";
+} else {
+    foreach ($localThemes as $themePath) {
+        $themeSlug = basename($themePath);
+        $installedThemePath = "wordpress/wp-content/themes/$themeSlug";
+
+        if (is_link($installedThemePath) || !is_dir($installedThemePath)) {
+            if (file_exists($installedThemePath) || is_link($installedThemePath)) {
+                $removeCmd = 'rm -rf ' . escapeshellarg($installedThemePath);
+                system($removeCmd);
+            }
+
+            $copyCmd = sprintf(
+                'cp -R %s %s',
+                escapeshellarg($themePath),
+                escapeshellarg('wordpress/wp-content/themes/')
+            );
+
+            system($copyCmd);
+            echo "   ✓ Copied $themeSlug theme files\n";
+        } else {
+            echo "   ✓ $themeSlug already installed without symlink\n";
+        }
+    }
 }
 
 echo "   ✓ WordPress files are in wordpress/ directory\n";

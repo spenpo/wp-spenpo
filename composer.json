@@ -42,7 +42,10 @@
         },
         {
             "type": "path",
-            "url": "src/themes/twentytwentyfour-spenpo"
+            "url": "src/themes/twentytwentyfour-spenpo",
+            "options": {
+                "symlink": false
+            }
         }
     ]
 }
