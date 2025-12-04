@@ -27,7 +27,18 @@ fi
 # Function to check if migration has been applied
 check_migration_applied() {
     local migration_name="$1"
-    wp db query "SELECT COUNT(*) FROM wp_migrations WHERE name='$migration_name'" --path="$WORDPRESS_PATH" --skip-column-names
+    local output count
+
+    output=$(wp db query "SELECT COUNT(*) FROM wp_migrations WHERE name='$migration_name'" --path="$WORDPRESS_PATH" --skip-column-names 2>&1)
+    count=$(printf '%s\n' "$output" | head -n 1 | tr -d $'\r' | xargs)
+
+    if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+        echo "Warning: Unexpected response while checking migration $migration_name: $output" >&2
+        echo "0"
+        return 1
+    fi
+
+    echo "$count"
 }
 
 # Function to mark migration as applied
