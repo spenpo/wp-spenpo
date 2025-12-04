@@ -94,9 +94,9 @@ echo "   ✓ File permissions set\n";
 echo "\n6. Verifying installation...\n";
 $required_files = [
     'wordpress/index.php',
-    'wordpress/wp-content/plugins/woocommerce',
-    'wordpress/wp-content/plugins/contact-form-7',
-    'wordpress/wp-content/plugins/wordpress-seo'
+    'wordpress/wp-content/plugins/spenpo-resume',
+    'wordpress/wp-content/plugins/litespeed-cache',
+    'wordpress/wp-content/themes/twentytwentyfour-spenpo'
 ];
 
 $all_good = true;
