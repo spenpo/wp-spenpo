@@ -4,6 +4,12 @@
  * 
  * This script syncs images between local uploads directory and Cloudflare R2 storage.
  * It can upload local images to R2 or download images from R2 to local.
+ * 
+ * Upload Feature:
+ * - By default, only uploads new files or files that have changed
+ * - Uses ETag/MD5 comparison to detect changes (skips identical files)
+ * - Significantly faster for large directories with mostly unchanged files
+ * - Use --force to upload all files regardless of their status
  */
 
 require_once 'vendor/autoload.php';
@@ -82,7 +88,7 @@ class R2ImageSync {
         }
     }
     
-    public function uploadToR2($dryRun = false) {
+    public function uploadToR2($dryRun = false, $skipExisting = true) {
         echo "📤 Uploading local images to R2...\n";
         
         if (!is_dir($this->localUploadsDir)) {
@@ -92,13 +98,61 @@ class R2ImageSync {
         
         $files = $this->scanDirectory($this->localUploadsDir);
         $uploaded = 0;
+        $skipped = 0;
+        $changed = 0;
+        $wouldUpload = 0;
         
         foreach ($files as $file) {
             $relativePath = str_replace($this->localUploadsDir . '/', '', $file);
             $r2Key = 'uploads/' . $relativePath;
             
+            // Check if file needs to be uploaded by comparing ETags
+            if ($skipExisting) {
+                try {
+                    $checkResult = $this->checkFileNeedsUpload($file, $r2Key);
+                    
+                    if (!$checkResult['needsUpload']) {
+                        if ($dryRun) {
+                            echo "   Would skip (unchanged): $relativePath\n";
+                            $skipped++;
+                        } else {
+                            echo "   ⏭️  Skipped (unchanged): $relativePath\n";
+                            $skipped++;
+                        }
+                        continue;
+                    } else {
+                        // File needs upload - track reason
+                        if ($dryRun) {
+                            $reason = $checkResult['reason'];
+                            if ($reason === 'file content changed') {
+                                echo "   Would upload (changed): $relativePath\n";
+                                $changed++;
+                            } else {
+                                echo "   Would upload ($reason): $relativePath\n";
+                            }
+                            $wouldUpload++;
+                        } else if ($checkResult['reason'] === 'file content changed') {
+                            $changed++;
+                        }
+                    }
+                } catch (AwsException $e) {
+                    // If check fails, we'll try to upload anyway
+                    if ($dryRun) {
+                        echo "   Would upload (check failed): $relativePath\n";
+                        $wouldUpload++;
+                    } else {
+                        echo "   ⚠️  Could not check file status for $relativePath, attempting upload: " . $e->getMessage() . "\n";
+                    }
+                }
+            } else {
+                // Not skipping existing, always upload
+                if ($dryRun) {
+                    echo "   Would upload: $relativePath\n";
+                    $wouldUpload++;
+                }
+            }
+            
             if ($dryRun) {
-                echo "   Would upload: $file -> $r2Key\n";
                 continue;
             }
             
@@ -120,9 +174,25 @@ class R2ImageSync {
         }
         
         if ($dryRun) {
-            echo "   🔍 Dry run complete. Would upload " . count($files) . " files.\n";
+            $summary = "   🔍 Dry run complete: $wouldUpload would upload";
+            if ($skipExisting && $skipped > 0) {
+                $summary .= ", $skipped would skip (unchanged)";
+                if ($changed > 0) {
+                    $summary .= " ($changed changed files)";
+                }
+            }
+            $summary .= "\n";
+            echo $summary;
         } else {
-            echo "   �� Upload complete: $uploaded uploaded\n";
+            $summary = "   📊 Upload complete: $uploaded uploaded";
+            if ($skipExisting) {
+                $summary .= ", $skipped skipped (unchanged)";
+                if ($changed > 0) {
+                    $summary .= ", $changed updated";
+                }
+            }
+            $summary .= "\n";
+            echo $summary;
         }
         
         return true;
@@ -235,6 +305,51 @@ class R2ImageSync {
     }
     
     /**
+     * Check if a file needs to be uploaded by comparing ETags
+     * Returns array with 'needsUpload' (bool) and 'reason' (string)
+     */
+    private function checkFileNeedsUpload($localFile, $r2Key) {
+        // Calculate local file MD5
+        if (!file_exists($localFile)) {
+            return ['needsUpload' => false, 'reason' => 'Local file does not exist'];
+        }
+        
+        $localMd5 = md5_file($localFile);
+        
+        // Check if object exists in R2 and get its ETag
+        try {
+            $result = $this->s3Client->headObject([
+                'Bucket' => $this->bucket,
+                'Key' => $r2Key,
+            ]);
+            
+            // ETag is returned with quotes, remove them for comparison
+            $r2Etag = trim($result['ETag'], '"');
+            
+            // If ETag contains a hyphen, it's a multipart upload and ETag != MD5
+            // In that case, we'll re-upload to be safe
+            if (strpos($r2Etag, '-') !== false) {
+                return ['needsUpload' => true, 'reason' => 'ETag indicates multipart upload, cannot verify'];
+            }
+            
+            // Compare MD5 hashes
+            if ($localMd5 === $r2Etag) {
+                return ['needsUpload' => false, 'reason' => 'unchanged'];
+            } else {
+                return ['needsUpload' => true, 'reason' => 'file content changed'];
+            }
+            
+        } catch (AwsException $e) {
+            // If object doesn't exist (404) or other error, we need to upload
+            if ($e->getAwsErrorCode() === 'NotFound' || $e->getStatusCode() === 404) {
+                return ['needsUpload' => true, 'reason' => 'file does not exist in R2'];
+            }
+            // For other errors, throw to be handled by caller
+            throw $e;
+        }
+    }
+    
+    /**
      * Register an image in WordPress database as a media attachment
      */
     private function registerImageInWordPress($relativePath, $localPath) {
@@ -302,10 +417,11 @@ if (php_sapi_name() === 'cli') {
     
     $command = $argv[1] ?? 'help';
     $dryRun = in_array('--dry-run', $argv);
+    $force = in_array('--force', $argv);
     
     switch ($command) {
         case 'upload':
-            $sync->uploadToR2($dryRun);
+            $sync->uploadToR2($dryRun, !$force);
             break;
         case 'download':
             $sync->downloadFromR2($dryRun);
@@ -315,14 +431,23 @@ if (php_sapi_name() === 'cli') {
             echo "R2 Image Sync Tool\n\n";
             echo "Usage: php r2-sync.php <command> [options]\n\n";
             echo "Commands:\n";
-            echo "  upload     - Upload all local images to R2\n";
+            echo "  upload     - Upload local images to R2 (skips unchanged files by default)\n";
             echo "  download   - Download all images from R2 to local\n";
             echo "  help       - Show this help message\n\n";
             echo "Options:\n";
-            echo "  --dry-run  - Show what would be done without making changes\n\n";
+            echo "  --dry-run  - Show what would be done without making changes\n";
+            echo "  --force    - Force upload even if file already exists and is unchanged\n\n";
+            echo "Upload Behavior:\n";
+            echo "  By default, uploads are optimized using ETag/MD5 comparison:\n";
+            echo "  - New files (not in R2): Always uploaded\n";
+            echo "  - Changed files (different content): Uploaded\n";
+            echo "  - Unchanged files (same MD5 hash): Skipped\n";
+            echo "  Use --force to upload all files regardless of status.\n\n";
             echo "Examples:\n";
-            echo "  php r2-sync.php upload\n";
-            echo "  php r2-sync.php download --dry-run\n";
+            echo "  php r2-sync.php upload              # Upload only new/changed files\n";
+            echo "  php r2-sync.php upload --dry-run    # Preview what would be uploaded\n";
+            echo "  php r2-sync.php upload --force      # Upload all files (no optimization)\n";
+            echo "  php r2-sync.php download --dry-run  # Preview what would be downloaded\n";
             break;
     }
 }

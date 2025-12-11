@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Pre-commit hook to validate migration file naming convention
+# Migrations must follow the format: YYYYMMDD-description.ext or YYYYMMDD-001-description.ext
+# Exception: seed.sql is allowed without date prefix
+
+# Get list of staged files in migrations directory
+staged_migrations=$(git diff --cached --name-only --diff-filter=ACMR | grep '^migrations/')
+
+if [ -z "$staged_migrations" ]; then
+    # No migration files staged, nothing to check
+    exit 0
+fi
+
+# Track validation errors
+errors=0
+
+# Check each staged migration file
+while IFS= read -r file; do
+    # Skip if file doesn't exist (might be a deletion)
+    if [ ! -f "$file" ]; then
+        continue
+    fi
+    
+    # Get just the filename
+    filename=$(basename "$file")
+    
+    # Allow seed.sql as an exception
+    if [[ "$filename" == "seed.sql" ]]; then
+        continue
+    fi
+    
+    # Check if filename starts with YYYYMMDD- format (8 digits followed by hyphen)
+    # Optional sequence number format: YYYYMMDD-001-description or YYYYMMDD-description
+    if [[ ! "$filename" =~ ^[0-9]{8}(-[0-9]{1,3})?- ]]; then
+        echo "❌ Migration naming convention violation: $file" >&2
+        echo "   Migrations must follow the format: YYYYMMDD-description.ext" >&2
+        echo "   Or for multiple migrations per day: YYYYMMDD-001-description.ext" >&2
+        echo "   Example: 20251202-insert-wastewater-image-post.sql" >&2
+        echo "   Example: 20251202-001-activate-plugin.sql" >&2
+        echo "   Exception: seed.sql is allowed without date prefix" >&2
+        errors=$((errors + 1))
+    fi
+done <<< "$staged_migrations"
+
+# Exit with error if any violations found
+if [ $errors -gt 0 ]; then
+    echo "" >&2
+    echo "Commit aborted. Please fix migration file names to follow the convention." >&2
+    exit 1
+fi
+
+exit 0
+

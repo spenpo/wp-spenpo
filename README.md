@@ -8,6 +8,7 @@ A modern WordPress development setup using Composer for dependency management an
 ```bash
 git clone <your-repo>
 cd wp-build
+./install-hooks.sh  # Install git hooks
 ./build.sh
 ```
 
@@ -123,12 +124,38 @@ This project uses Cloudflare R2 for image storage instead of committing images t
 php r2-sync.php upload
 ```
 
+The upload command is optimized for performance:
+- **New files** (not in R2): Always uploaded
+- **Changed files** (content differs): Uploaded
+- **Unchanged files** (same content): Automatically skipped
+
+This uses ETag/MD5 comparison to detect changes, making uploads much faster for large directories with mostly unchanged files.
+
+**Options:**
+- `--dry-run`: Preview what would be uploaded without making changes
+- `--force`: Upload all files regardless of whether they've changed
+
+**Examples:**
+```bash
+# Upload only new/changed files (recommended)
+php r2-sync.php upload
+
+# Preview what would be uploaded
+php r2-sync.php upload --dry-run
+
+# Force upload everything (skips optimization)
+php r2-sync.php upload --force
+```
+
 #### Download Images from R2
 ```bash
 ./image-manager.sh download
 # or
 php r2-sync.php download
 ```
+
+**Options:**
+- `--dry-run`: Preview what would be downloaded without making changes
 
 #### Check Image Status
 ```bash
@@ -153,9 +180,11 @@ The build script will:
 
 ### Workflow
 1. **Development**: Add images to `src/uploads/` locally
-2. **Upload**: Run `./image-manager.sh upload` to sync to R2
+2. **Upload**: Run `./image-manager.sh upload` to sync to R2 (only new/changed files are uploaded)
 3. **Build**: Run `./build.sh` to fetch images and rebuild
 4. **Deployment**: Images are automatically available in production builds
+
+**Performance Tip**: The upload command uses ETag/MD5 comparison to skip unchanged files, so subsequent uploads are much faster. This is especially useful when working with large image directories over time.
 
 ### Environment Variable Precedence
 The script follows this order for configuration:
@@ -386,13 +415,105 @@ The script will:
 4. Handle plugin activations automatically
 
 
+## 🔗 Git Hooks
+
+This project includes git hooks to automate common tasks and ensure code quality. These hooks are stored in the `hooks/` directory and need to be installed after cloning the repository.
+
+### Installation
+
+After cloning the repository, install the git hooks:
+
+```bash
+./install-hooks.sh
+```
+
+This will copy the hooks from `hooks/` to `.git/hooks/` and make them executable. The hooks will then run automatically during git operations.
+
+**Note:** Git hooks are not tracked by git (they live in `.git/hooks/`), so they won't be automatically available when you clone. Always run `./install-hooks.sh` after cloning or pulling from a fresh repository.
+
+### Pre-Commit Hook
+
+The pre-commit hook validates migration file naming conventions before allowing commits.
+
+**What it does:**
+- Checks all staged files in the `migrations/` directory
+- Validates that migration filenames follow the required format
+- Blocks commits if naming conventions are violated
+
+**Naming Convention:**
+Migrations must follow one of these formats:
+- `YYYYMMDD-description.ext` (e.g., `20251202-insert-wastewater-image-post.sql`)
+- `YYYYMMDD-001-description.ext` (e.g., `20251202-001-activate-plugin.sql`) - for multiple migrations per day
+- `seed.sql` - exception allowed without date prefix
+
+**Example Error:**
+```
+❌ Migration naming convention violation: migrations/my-migration.sql
+   Migrations must follow the format: YYYYMMDD-description.ext
+   Or for multiple migrations per day: YYYYMMDD-001-description.ext
+   Example: 20251202-insert-wastewater-image-post.sql
+   Example: 20251202-001-activate-plugin.sql
+   Exception: seed.sql is allowed without date prefix
+
+Commit aborted. Please fix migration file names to follow the convention.
+```
+
+### Pre-Push Hook
+
+The pre-push hook automatically syncs images to R2 storage before pushing code.
+
+**What it does:**
+- Automatically runs `php r2-sync.php upload` before each push
+- Only uploads new or changed files (uses ETag/MD5 comparison for optimization)
+- Shows success/failure messages
+- Does not block the push if sync fails (warns but continues)
+
+**Behavior:**
+- If sync succeeds: Shows success message and continues with push
+- If sync fails: Shows warning but allows push to continue (you can sync manually later)
+- If `r2-sync.php` is missing: Shows warning and continues with push
+
+**Example Output:**
+```
+🖼️  Syncing images to R2 before push...
+📤 Uploading local images to R2...
+   ✅ Uploaded: 2025/12/image.jpg
+   ⏭️  Skipped (unchanged): 2025/11/photo.png
+   📊 Upload complete: 1 uploaded, 5 skipped (unchanged)
+✅ Images synced to R2 successfully
+```
+
+**Benefits:**
+- Ensures images are always synced before code is pushed
+- Prevents forgetting to upload images manually
+- Optimized to only upload changed files, so it's fast
+- Non-blocking: won't prevent code pushes if there are temporary R2 issues
+
+### Disabling Hooks (Temporary)
+
+If you need to bypass a hook temporarily, you can use git's `--no-verify` flag:
+
+```bash
+# Skip pre-commit hook
+git commit --no-verify -m "your message"
+
+# Skip pre-push hook
+git push --no-verify
+```
+
+**Note:** Use this sparingly. The hooks are in place to maintain code quality and ensure proper workflow.
+
+
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Add your custom code to `src/`
-4. Test with `./build.sh`
-5. Submit a pull request
+2. Clone your fork and run `./install-hooks.sh` to install git hooks
+3. Create a feature branch
+4. Add your custom code to `src/`
+5. Test with `./build.sh`
+6. Submit a pull request
+
+**Note:** The `hooks/` directory contains git hooks that should be committed to the repository. After cloning, always run `./install-hooks.sh` to install them to `.git/hooks/`.
 
 ## 📄 License
 
